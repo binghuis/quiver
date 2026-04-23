@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@plugin "@tailwindcss/typography";
+
 @custom-variant dark (&:is(.dark *));
 
 /* Tailwind v4: map CSS variables to utility colors */
@@ -32,6 +34,14 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Helvetica Neue", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
 }
 
 /* Light theme (mirror of dark per raycast-design skill) */
@@ -57,6 +67,14 @@
   --border: #e4e4e7; /* zinc-200 */
   --input: #e4e4e7;
   --ring: #ff6363;
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
 /* Dark theme — default for Quiver */
@@ -80,11 +98,24 @@
   --border: #27272a;
   --input: #27272a;
   --ring: #ff6363;
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
 @layer base {
   * {
     border-color: var(--border);
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
   }
 
   html,
@@ -127,4 +158,187 @@
     outline: 1px solid var(--ring);
     outline-offset: 1px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Markdown 正文 —— Raycast 工具感：紧凑、零装饰、字号几乎不分级
+ * 标题靠字重 + 颜色 + 上 margin 区分，不靠字号阶梯
+ * ------------------------------------------------------------------------- */
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: var(--foreground);
+  --tw-prose-pre-bg: var(--muted);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: none;
+}
+
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child  { margin-bottom: 0; }
+
+.prose p {
+  margin-top: 0;
+  margin-bottom: 0.7em;
+}
+
+/* 标题：字号 13–14px 三档，主要靠字重 + margin 区分层级 */
+.prose :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 0.35em;
+}
+.prose h1 {
+  font-size: 14px;
+  margin-top: 0;
+}
+.prose h2 {
+  font-size: 13px;
+  margin-top: 1.4em;
+}
+.prose h3 {
+  font-size: 13px;
+  margin-top: 1.1em;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  margin-top: 0.9em;
+}
+
+/* 行内 code：纯背景块，无 border */
+.prose :where(code):not(pre code)::before,
+.prose :where(code):not(pre code)::after {
+  content: none;
+}
+.prose :where(code):not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* 代码块：紧凑 padding，单线边框 */
+.prose pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+
+/* 引用：极简灰线，无背景 */
+.prose blockquote {
+  border-left: 2px solid var(--border);
+  padding: 0 0 0 10px;
+  margin: 0.6em 0;
+  color: var(--muted-foreground);
+  font-style: normal;
+  font-weight: 400;
+}
+.prose blockquote p::before,
+.prose blockquote p::after {
+  content: none;
+}
+
+/* 列表：紧凑行距，缩进收窄 */
+.prose ul,
+.prose ol {
+  margin: 0.3em 0 0.7em;
+  padding-left: 1.2em;
+}
+.prose li {
+  margin: 0.15em 0;
+  padding-left: 0.15em;
+}
+.prose li > p {
+  margin: 0.15em 0;
+}
+.prose li > ul,
+.prose li > ol {
+  margin: 0.15em 0;
+}
+
+/* 表格：纯线条，无圆角无阴影，紧凑单元格 */
+.prose table {
+  font-size: 12px;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  width: auto;
+}
+.prose thead {
+  border-bottom: 1px solid var(--border);
+}
+.prose th {
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-align: left;
+}
+.prose th,
+.prose td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.prose th:first-child,
+.prose td:first-child {
+  padding-left: 0;
+}
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 链接：默认无下划线，hover 才显 */
+.prose a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: inherit;
+}
+.prose a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 分隔线：单像素细线 */
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+
+/* GFM checkbox */
+.prose input[type="checkbox"] {
+  margin-right: 5px;
+  width: 11px;
+  height: 11px;
+  accent-color: var(--primary);
+  vertical-align: -1px;
+}
+
+/* 图片：裸边，仅微圆角 */
+.prose img {
+  max-width: 100%;
+  margin: 0.6em 0;
+  border-radius: 4px;
 }
