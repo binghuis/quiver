@@ -1,5 +1,12 @@
 import { forwardRef, useMemo, useState } from "react";
-import { Ban, Eye, Library, Package, Wand2 } from "lucide-react";
+import {
+  Ban,
+  ChevronRight,
+  Library,
+  ListFilter,
+  Package,
+  Wand2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   groupByMarketplace,
@@ -38,11 +45,14 @@ export function Sidebar({ skills, filter, onFilterChange }: Props) {
   // 计数以 logical skill 为单位，和主列表、filter 口径一致：
   // plugin 原生的同步副本不会再被当成独立"用户级 skill"去计数。冲突条目不计入。
   const { logicals } = useMemo(() => toLogicalSkills(skills), [skills]);
+  // 「已禁用」口径 = Claude Code 实际不会加载的：文件名是 SKILL.md.disabled，
+  // 或宿主插件在 settings.json 被 gate 掉。两条任一 hit 就算 disabled。
   const count = {
     all: logicals.length,
     user: logicals.filter((l) => logicalPrimaryScope(l) === "user").length,
-    disabled: logicals.filter((l) => l.presences.some((p) => !p.skill.enabled))
-      .length,
+    disabled: logicals.filter((l) =>
+      l.presences.some((p) => !p.skill.enabled || !p.skill.plugin_enabled),
+    ).length,
   };
 
   const isActive = (f: SidebarFilter): boolean => {
@@ -88,19 +98,18 @@ export function Sidebar({ skills, filter, onFilterChange }: Props) {
               <SectionLabel
                 count={m.total}
                 collapsed={isCollapsed}
+                active={isActive({
+                  kind: "marketplace",
+                  marketplace: m.marketplace,
+                })}
                 onClick={() => toggleCollapsed(m.marketplace)}
                 action={{
-                  icon: <Eye size={12} />,
+                  label: `只看 ${m.marketplace}`,
                   onClick: () =>
                     onFilterChange({
                       kind: "marketplace",
                       marketplace: m.marketplace,
                     }),
-                  active: isActive({
-                    kind: "marketplace",
-                    marketplace: m.marketplace,
-                  }),
-                  label: `查看 ${m.marketplace} 全部 skills`,
                 }}
               >
                 {m.marketplace}
@@ -113,7 +122,10 @@ export function Sidebar({ skills, filter, onFilterChange }: Props) {
                     accentColor={pluginAccent(p.plugin)}
                     label={p.name}
                     count={p.total}
-                    dim={p.enabled === 0}
+                    // 整体置灰条件：宿主插件被 gate（settings.json 里 false）
+                    // 或所有 skill 都被文件级禁用了。两种情形 Claude Code 都
+                    // 不会加载它。
+                    dim={!p.plugin_enabled || p.enabled === 0}
                     active={isActive({
                       kind: "plugin",
                       plugin: p.plugin,
@@ -134,18 +146,12 @@ export function Sidebar({ skills, filter, onFilterChange }: Props) {
   );
 }
 
-type SectionAction = {
-  icon: React.ReactNode;
-  onClick: () => void;
-  active?: boolean;
-  label?: string;
-};
-
 function SectionLabel({
   children,
   className,
   count,
   collapsed,
+  active,
   onClick,
   action,
 }: {
@@ -153,8 +159,9 @@ function SectionLabel({
   className?: string;
   count?: number;
   collapsed?: boolean;
+  active?: boolean;
   onClick?: () => void;
-  action?: SectionAction;
+  action?: { label: string; onClick: () => void };
 }) {
   const interactive = !!onClick;
   return (
@@ -173,42 +180,62 @@ function SectionLabel({
           : undefined
       }
       className={cn(
-        "group/section flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider transition-colors duration-100",
-        collapsed ? "text-muted-foreground/45" : "text-muted-foreground/70",
-        interactive &&
-          "cursor-pointer select-none hover:text-muted-foreground",
+        "group/section flex items-center gap-1.5 rounded-md px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider transition-colors duration-100",
+        active
+          ? "bg-muted/60 text-foreground"
+          : collapsed
+            ? "text-muted-foreground/45"
+            : "text-muted-foreground/70",
+        interactive && "cursor-pointer select-none",
+        interactive && !active && "hover:text-foreground",
         className,
       )}
     >
+      <ChevronRight
+        size={10}
+        className={cn(
+          "shrink-0 transition-transform duration-150",
+          active ? "text-foreground" : "text-muted-foreground/45",
+          !collapsed && "rotate-90",
+        )}
+      />
       <span className="flex-1 truncate">{children}</span>
-      {action && (
-        <button
-          type="button"
-          aria-label={action.label}
-          onClick={(e) => {
-            e.stopPropagation();
-            action.onClick();
-          }}
-          className={cn(
-            "flex size-3.5 transform-gpu items-center justify-center rounded-sm transition-opacity duration-100 will-change-[opacity]",
-            action.active
-              ? "text-primary opacity-100"
-              : "text-muted-foreground/70 opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
-          )}
-        >
-          {action.icon}
-        </button>
-      )}
-      {count !== undefined && (
-        <span
-          className={cn(
-            "tabular-nums",
-            collapsed ? "text-muted-foreground/40" : "text-muted-foreground/60",
-          )}
-        >
-          {count}
-        </span>
-      )}
+      <div className="relative flex items-center">
+        {count !== undefined && (
+          <span
+            className={cn(
+              "tabular-nums transition-opacity duration-100",
+              action && active && "opacity-0",
+              action && !active && "group-hover/section:opacity-0",
+              active
+                ? "text-foreground"
+                : collapsed
+                  ? "text-muted-foreground/40"
+                  : "text-muted-foreground/60",
+            )}
+          >
+            {count}
+          </span>
+        )}
+        {action && (
+          <button
+            type="button"
+            aria-label={action.label}
+            onClick={(e) => {
+              e.stopPropagation();
+              action.onClick();
+            }}
+            className={cn(
+              "absolute inset-y-0 right-0 flex items-center transition-opacity duration-100",
+              active
+                ? "text-foreground opacity-100"
+                : "text-muted-foreground/55 opacity-0 hover:text-foreground group-hover/section:opacity-100 focus-visible:opacity-100",
+            )}
+          >
+            <ListFilter size={11} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

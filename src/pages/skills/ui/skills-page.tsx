@@ -31,6 +31,7 @@ import {
   logicalPrimaryScope,
   refreshClaudeMarketplace,
   syncSkillToEcosystem,
+  togglePlugin,
   toggleSkills,
   toLogicalSkills,
   type ImportResult,
@@ -69,7 +70,11 @@ export function SkillsPage() {
         case "all":
           return true;
         case "disabled":
-          return l.presences.some((p) => !p.skill.enabled);
+          // Claude Code 实际不会加载的两种情形：文件名 SKILL.md.disabled，
+          // 或宿主插件在 settings.json 被 gate 掉。
+          return l.presences.some(
+            (p) => !p.skill.enabled || !p.skill.plugin_enabled,
+          );
         case "scope":
           // 按「主来源」判定，避免 plugin skill 的 user-scope 同步副本
           // 跑到「用户级」篮子里重复出现。
@@ -232,21 +237,20 @@ export function SkillsPage() {
     }
   };
 
-  // Plugin master switch：把该插件下所有 logical 的所有 presences 一把传给后端。
+  // 插件总开关：写 `~/.claude/settings.json` 的 `enabledPlugins[plugin_id]`，
+  // **不动 SKILL.md 文件**——这是 Claude Code 真正的插件级 gate，false 时整个
+  // 插件（skill / commands / hooks / agents）都不加载。
+  //
+  // 乐观更新：把该插件下所有 plugin-scope skill 的 `plugin_enabled` 标志同步
+  // 翻一下，UI 立即反映；失败再 reload 回滚。
   const handleTogglePlugin = async (plugin: string, enabled: boolean) => {
-    const logicalsUnder = allLogicals.filter((l) =>
-      l.presences.some(
-        (p) => p.skill.scope === "plugin" && p.skill.plugin === plugin,
-      ),
+    const affected = skills.filter(
+      (s) => s.scope === "plugin" && s.plugin === plugin,
     );
-    if (logicalsUnder.length === 0) return;
-    const ids = logicalsUnder.flatMap((l) =>
-      l.presences.map((p) => p.skill.id),
-    );
-    for (const id of ids) updateLocal(id, { enabled });
-
+    if (affected.length === 0) return;
+    for (const s of affected) updateLocal(s.id, { plugin_enabled: enabled });
     try {
-      await toggleSkills(ids, enabled);
+      await togglePlugin(plugin, enabled);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
       await reload();
@@ -562,9 +566,10 @@ function SelectionBanner({
     if (isMarket) return s.plugin?.endsWith("@" + filter.marketplace);
     return s.plugin === filter.plugin;
   });
-  // 「插件总开关」语义：只要还有任一子 skill 在开，就显示为开。这样单独禁掉
-  // 一个 skill 不会让整体灯灭；用户主动关 → 全禁，从全禁状态主动开 → 全启。
-  const pluginEnabled = !isMarket && items.some((s) => s.enabled);
+  // 插件总开关 = settings.json `enabledPlugins[plugin_id]`。同插件下每个 skill
+  // 的 plugin_enabled 必然一致（同一来源），取第一项即可。空列表时按禁用展示。
+  const pluginEnabled =
+    !isMarket && items.length > 0 && items[0].plugin_enabled;
 
   const title = isMarket ? filter.marketplace : parsePluginName(filter.plugin);
   const meta = isMarket

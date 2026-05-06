@@ -8,10 +8,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             skills::list_skills,
             skills::toggle_skills,
+            skills::toggle_plugin,
             skills::import_from_github,
             skills::reveal_in_finder,
             skills::sync_skill_to_ecosystem,
             skills::refresh_claude_marketplace,
+            skills::marketplace_path,
             deletion::delete_marketplace,
             deletion::delete_skill_presence,
         ])

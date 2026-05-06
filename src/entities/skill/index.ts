@@ -7,16 +7,20 @@ export type {
 export {
   listSkills,
   toggleSkills,
+  togglePlugin,
   importFromGithub,
   revealInFinder,
   deleteMarketplace,
   deleteSkillPresence,
   syncSkillToEcosystem,
   refreshClaudeMarketplace,
+  marketplacePath,
 } from "./api/skills.api";
 export type { ImportResult } from "./api/skills.api";
 export {
   parsePluginId,
+  pluginInstallDir,
+  skillDir,
   groupByMarketplace,
   scopeLabel,
   scopeColor,

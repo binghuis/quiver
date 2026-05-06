@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -6,13 +6,12 @@ import {
   BookOpen,
   Check,
   CloudUpload,
-  Code2,
   Copy,
-  Eye,
   FolderOpen,
-  Info,
   Loader2,
+  PowerOff,
   RefreshCw,
+  SquareSlash,
   Trash,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,15 +20,16 @@ import {
   EcosystemIcon,
   ecosystemColor,
   ecosystemLabel,
+  marketplacePath,
   parsePluginId,
+  pluginInstallDir,
+  skillDir,
   revealInFinder,
   type EcosystemPresence,
   type Skill,
   type SkillEcosystem,
 } from "@/entities/skill";
 import { Button } from "@/shared/ui/button";
-
-type Mode = "rendered" | "source";
 
 type SyncFailureMap = Partial<Record<SkillEcosystem, string>>;
 
@@ -63,17 +63,22 @@ export function SkillDetail({
   onDeleteLogical,
   onDeletePresence,
 }: Props) {
-  const [mode, setMode] = useState<Mode>("rendered");
-
   if (!skill) return <EmptyState />;
 
   // 只要任一份 presence 来自 plugin，就按 plugin 口径展示——user-scope 的同步副本
   // 只是分发结果，身份仍属于原插件，不能回标成「用户级」。
   const pluginPresence = presences.find((p) => p.skill.scope === "plugin");
   const parsed = parsePluginId(pluginPresence?.skill.plugin ?? skill.plugin);
-  const breadcrumb =
+  const pluginContext =
     pluginPresence && parsed
-      ? `${parsed.marketplace} › ${parsed.name}`
+      ? {
+          // marketplace="unknown" 是 parsePluginId 对无 `@` 的 plugin id（典型是
+          // Gemini extension）的回退值，没有真实路径可查 → 不渲染 marketplace 段。
+          marketplace:
+            parsed.marketplace !== "unknown" ? parsed.marketplace : null,
+          pluginName: parsed.name,
+          pluginPath: pluginInstallDir(pluginPresence.skill.path),
+        }
       : null;
 
   return (
@@ -83,9 +88,7 @@ export function SkillDetail({
         presences={presences}
         drifted={drifted}
         syncFailures={syncFailures}
-        breadcrumb={breadcrumb}
-        mode={mode}
-        onModeChange={setMode}
+        pluginContext={pluginContext}
         onToggle={onToggle}
         onSyncTo={onSyncTo}
         onPushToAll={onPushToAll}
@@ -94,20 +97,26 @@ export function SkillDetail({
       />
 
       <div className="flex-1 overflow-y-auto">
-        <BodyView skill={skill} mode={mode} />
+        <BodyView skill={skill} />
       </div>
     </section>
   );
 }
+
+type PluginContext = {
+  marketplace: string | null;
+  pluginName: string;
+  pluginPath: string;
+};
+
+type CopyTarget = "skill" | "marketplace" | "plugin";
 
 function DetailHeader({
   skill,
   presences,
   drifted,
   syncFailures,
-  breadcrumb,
-  mode,
-  onModeChange,
+  pluginContext,
   onToggle,
   onSyncTo,
   onPushToAll,
@@ -118,9 +127,7 @@ function DetailHeader({
   presences: EcosystemPresence[];
   drifted: boolean;
   syncFailures?: SyncFailureMap;
-  breadcrumb: string | null;
-  mode: Mode;
-  onModeChange: (m: Mode) => void;
+  pluginContext: PluginContext | null;
   onToggle: (id: string, enabled: boolean) => void;
   onSyncTo: (
     sourceId: string,
@@ -132,6 +139,42 @@ function DetailHeader({
   onDeletePresence: (presenceId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [lastCopied, setLastCopied] = useState<CopyTarget | null>(null);
+
+  // marketplace 路径走后端，预取避免在 click handler 里 await——一旦在写剪贴板
+  // 之前 await，user-activation 会断，clipboard API 直接拒绝。
+  const marketplaceName = pluginContext?.marketplace ?? null;
+  const [marketplacePathCache, setMarketplacePathCache] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (!marketplaceName) {
+      setMarketplacePathCache(null);
+      return;
+    }
+    let cancelled = false;
+    marketplacePath(marketplaceName)
+      .then((p) => {
+        if (!cancelled) setMarketplacePathCache(p);
+      })
+      .catch(() => {
+        if (!cancelled) setMarketplacePathCache(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [marketplaceName]);
+
+  const copyTo = async (path: string, kind: CopyTarget) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setLastCopied(kind);
+      setTimeout(() => setLastCopied(null), 1200);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  const skillDirPath = skillDir(skill.path);
   const [syncBusy, setSyncBusy] = useState<SkillEcosystem | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -180,7 +223,6 @@ function DetailHeader({
     }
   };
 
-  const isSource = mode === "source";
   // 顶栏"删除"按钮语义：把这条 logical 里所有 user/project 副本一把走系统
   // 垃圾桶（包括「插件派生到别的生态的 user-scope 副本」）。plugin 本体永远
   // 跳过——要删插件走插件面板。按钮只要存在可删的 user/project 副本就可见，
@@ -189,6 +231,11 @@ function DetailHeader({
   const hasRemovablePresence = presences.some(
     (p) => p.skill.scope === "user" || p.skill.scope === "project",
   );
+  // 插件级停用 = 当前查看的物理副本属于 plugin scope 且其宿主插件 plugin_enabled
+  // 为 false。settings.json 里整个插件被 gate 掉，文件级 enabled 完全不起作用。
+  // user/project 副本永远 plugin_enabled=true，不会触发此分支。
+  const pluginGloballyDisabled =
+    skill.scope === "plugin" && !skill.plugin_enabled;
 
   return (
     <header className="shrink-0 ">
@@ -207,12 +254,70 @@ function DetailHeader({
             void onDeletePresence(id);
           }}
         />
-        <h1 className="pointer-events-none min-w-0 truncate text-[15px] font-semibold">
-          {skill.name}
+        <h1 className="min-w-0 truncate">
+          <button
+            type="button"
+            title={
+              lastCopied === "skill"
+                ? "已复制路径"
+                : `复制路径：${skillDirPath}`
+            }
+            onClick={() => copyTo(skillDirPath, "skill")}
+            className={cn(
+              "max-w-full truncate text-left text-[15px] font-semibold transition-colors duration-100",
+              lastCopied === "skill"
+                ? "text-emerald-500"
+                : "hover:text-primary",
+            )}
+          >
+            {skill.name}
+          </button>
         </h1>
-        {breadcrumb && (
-          <span className="pointer-events-none min-w-0 truncate text-[11px] text-muted-foreground">
-            · {breadcrumb}
+        {pluginContext && (
+          <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <span>·</span>
+            {pluginContext.marketplace &&
+              (marketplacePathCache ? (
+                <button
+                  type="button"
+                  title={
+                    lastCopied === "marketplace"
+                      ? "已复制路径"
+                      : `复制路径：${marketplacePathCache}`
+                  }
+                  onClick={() =>
+                    copyTo(marketplacePathCache, "marketplace")
+                  }
+                  className={cn(
+                    "truncate transition-colors duration-100",
+                    lastCopied === "marketplace"
+                      ? "text-emerald-500"
+                      : "hover:text-primary",
+                  )}
+                >
+                  {pluginContext.marketplace}
+                </button>
+              ) : (
+                <span className="truncate">{pluginContext.marketplace}</span>
+              ))}
+            {pluginContext.marketplace && <span>›</span>}
+            <button
+              type="button"
+              title={
+                lastCopied === "plugin"
+                  ? "已复制路径"
+                  : `复制路径：${pluginContext.pluginPath}`
+              }
+              onClick={() => copyTo(pluginContext.pluginPath, "plugin")}
+              className={cn(
+                "truncate transition-colors duration-100",
+                lastCopied === "plugin"
+                  ? "text-emerald-500"
+                  : "hover:text-primary",
+              )}
+            >
+              {pluginContext.pluginName}
+            </button>
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -232,15 +337,6 @@ function DetailHeader({
               )}
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title={isSource ? "查看渲染" : "查看源码"}
-            onClick={() => onModeChange(isSource ? "rendered" : "source")}
-            className={cn(isSource && "bg-accent text-accent-foreground")}
-          >
-            {isSource ? <Eye /> : <Code2 />}
-          </Button>
           <Button
             variant="ghost"
             size="icon-xs"
@@ -277,10 +373,21 @@ function DetailHeader({
           <Button
             variant="ghost"
             size="icon-xs"
-            title={skill.enabled ? "禁用此 skill" : "启用此 skill"}
-            onClick={() => onToggle(skill.id, !skill.enabled)}
+            title={
+              pluginGloballyDisabled
+                ? "宿主插件已停用，单 skill 开关无效——先在侧栏的插件总开关里启用"
+                : skill.enabled
+                  ? "禁用此 skill"
+                  : "启用此 skill"
+            }
+            onClick={() => {
+              if (pluginGloballyDisabled) return;
+              onToggle(skill.id, !skill.enabled);
+            }}
+            disabled={pluginGloballyDisabled}
             className={cn(
               !skill.enabled &&
+                !pluginGloballyDisabled &&
                 "bg-destructive/15 text-destructive hover:bg-destructive/20 hover:text-destructive",
             )}
           >
@@ -289,15 +396,39 @@ function DetailHeader({
         </div>
       </div>
 
-      {skill.description && (
-        <div className="flex items-start gap-2 bg-muted/30 px-5 py-2.5">
-          <Info
+      {pluginGloballyDisabled && (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-5 py-2">
+          <PowerOff
             size={12}
-            strokeWidth={1.75}
-            className="mt-0.75 shrink-0 text-muted-foreground/70"
+            strokeWidth={2}
+            className="shrink-0 text-amber-500"
             aria-hidden
           />
-          <p className="min-w-0 text-[12px] leading-[1.6] text-muted-foreground">
+          <p className="min-w-0 text-[11.5px] leading-normal text-amber-700 dark:text-amber-400">
+            宿主插件已停用 — 此 skill 当前不会被 Claude Code 加载。去侧栏选中
+            插件，用顶部开关启用。
+          </p>
+        </div>
+      )}
+
+      {skill.description && (
+        <div className="flex items-start gap-2 bg-muted/30 px-5 py-2.5">
+          {skill.disable_model_invocation && (
+            <SquareSlash
+              size={12}
+              strokeWidth={1.75}
+              className="mt-0.75 shrink-0 text-muted-foreground/70"
+              aria-label="只能 /skill-name 手动调起，模型不会自己用"
+            />
+          )}
+          <p
+            className="min-w-0 text-[12px] leading-[1.6] text-muted-foreground"
+            title={
+              skill.disable_model_invocation
+                ? "只能 /skill-name 手动调起，模型不会自己用"
+                : undefined
+            }
+          >
             {skill.description}
           </p>
         </div>
@@ -478,26 +609,13 @@ function EmptyState() {
   );
 }
 
-function BodyView({ skill, mode }: { skill: Skill; mode: Mode }) {
+function BodyView({ skill }: { skill: Skill }) {
   const hasBody = (skill.body ?? "").trim().length > 0;
 
   if (!hasBody) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[12px] text-muted-foreground">（SKILL.md 无正文）</p>
-      </div>
-    );
-  }
-
-  if (mode === "source") {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-6">
-        <pre
-          className="my-0 overflow-x-auto whitespace-pre-wrap font-mono text-[13px]"
-          style={{ lineHeight: 1.55 }}
-        >
-          <code style={{ lineHeight: "inherit" }}>{skill.body}</code>
-        </pre>
       </div>
     );
   }

@@ -14,6 +14,15 @@ export function toggleSkills(ids: string[], enabled: boolean) {
   return invoke<void>("toggle_skills", { ids, enabled });
 }
 
+/**
+ * 翻 settings.json 的 `enabledPlugins[plugin_id]` —— 这是 Claude Code 的**插件级**
+ * 开关，false 时整个插件（skill / commands / hooks / agents）都不加载，跟单个
+ * SKILL.md 的文件级 toggle 是两套机制。`pluginId` 形如 `<plugin>@<marketplace>`。
+ */
+export function togglePlugin(pluginId: string, enabled: boolean) {
+  return invoke<void>("toggle_plugin", { pluginId, enabled });
+}
+
 export type ImportResult =
   | { kind: "skill"; skill: Skill }
   | {
@@ -59,4 +68,8 @@ export function syncSkillToEcosystem(
 
 export function refreshClaudeMarketplace(name: string) {
   return invoke<void>("refresh_claude_marketplace", { name });
+}
+
+export function marketplacePath(name: string) {
+  return invoke<string>("marketplace_path", { name });
 }

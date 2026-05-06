@@ -11,6 +11,11 @@ export type PluginNode = {
   marketplace: string;
   total: number;
   enabled: number;
+  /**
+   * 宿主插件在 settings.json `enabledPlugins` 里是不是 true。同插件下所有 skill
+   * 的 `plugin_enabled` 必然一致——取任一即可。空插件按 false 处理（侧栏置灰）。
+   */
+  plugin_enabled: boolean;
 };
 
 export type MarketplaceNode = {
@@ -44,9 +49,14 @@ export function groupByMarketplace(skills: Skill[]): MarketplaceNode[] {
       marketplace,
       total: 0,
       enabled: 0,
+      plugin_enabled: s.plugin_enabled,
     };
     node.total += 1;
     if (s.enabled) node.enabled += 1;
+    // 同插件下所有 skill 的 plugin_enabled 来自同一份 settings.json 查询，理论
+    // 上必然一致；遇到不一致（极端情况：扫描中途 settings.json 被改），保守按
+    // false 取值——避免错把已停用的插件展示成启用状态。
+    if (!s.plugin_enabled) node.plugin_enabled = false;
     plugins.set(key, node);
     byMarket.set(marketplace, plugins);
   }
@@ -94,6 +104,22 @@ const PLUGIN_PALETTE = [
   "#14b8a6", // teal
   "#f97316", // orange
 ];
+
+/**
+ * 从 SKILL.md 全路径反推插件安装目录——也就是包含 `/skills/` 这层的父目录。
+ * 适用于 Claude cache（`.../<mp>/<plugin>/<version>`）和 Gemini extensions
+ * （`.../extensions/<ext>`）。找不到 `/skills/` 就原样返回。
+ */
+export function pluginInstallDir(skillPath: string): string {
+  const idx = skillPath.lastIndexOf("/skills/");
+  return idx >= 0 ? skillPath.slice(0, idx) : skillPath;
+}
+
+/** 从 SKILL.md 全路径反推 skill 自己的目录（即 SKILL.md 的父目录）。 */
+export function skillDir(skillPath: string): string {
+  const idx = skillPath.lastIndexOf("/");
+  return idx >= 0 ? skillPath.slice(0, idx) : skillPath;
+}
 
 export function pluginAccent(plugin: string | null | undefined): string {
   if (!plugin) return scopeColor("plugin");

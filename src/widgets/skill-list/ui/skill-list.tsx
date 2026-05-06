@@ -64,6 +64,14 @@ function SkillRow({
 }) {
   const primary = logical.presences[0].skill;
   const present = new Set(logical.presences.map((p) => p.ecosystem));
+  // 整条 logical 是否「实际加载不进 Claude Code」：所有 plugin presence 的宿主
+  // 插件全停了，且没有任何 user/project 副本兜底 → 整条 dead。混合场景（user
+  // 副本仍活）不算 dead，正常展示。
+  const allPluginPresencesDead =
+    logical.presences.length > 0 &&
+    logical.presences.every(
+      (p) => p.skill.scope === "plugin" && !p.skill.plugin_enabled,
+    );
 
   return (
     <div
@@ -79,7 +87,7 @@ function SkillRow({
       className={cn(
         "relative flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors duration-100",
         selected ? "bg-muted" : "hover:bg-muted/50",
-        !primary.enabled && "opacity-55",
+        (!primary.enabled || allPluginPresencesDead) && "opacity-55",
       )}
     >
       {selected && (
