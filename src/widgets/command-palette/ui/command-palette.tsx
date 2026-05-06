@@ -109,7 +109,6 @@ export function CommandPalette({ open, onOpenChange, groups }: Props) {
       ) : (
         <InputView
           item={view.item}
-          onBack={() => setView({ kind: "list" })}
           onDone={() => onOpenChange(false)}
         />
       )}
@@ -119,11 +118,9 @@ export function CommandPalette({ open, onOpenChange, groups }: Props) {
 
 function InputView({
   item,
-  onBack,
   onDone,
 }: {
   item: CommandInputItem;
-  onBack: () => void;
   onDone: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -162,11 +159,6 @@ function InputView({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
-          if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onBack();
-          }
         }}
         placeholder={item.input.placeholder}
         disabled={loading}
