@@ -56,7 +56,7 @@ fn remove_installed_entries_by_marketplace(marketplace: &str) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn delete_marketplace(name: String) -> Result<(), String> {
+pub async fn delete_marketplace(name: String) -> Result<(), String> {
     let home = home_dir()?;
     let cache_path = home.join(".claude").join("plugins").join("cache").join(&name);
     let marketplace_path = home
@@ -90,7 +90,7 @@ pub fn delete_marketplace(name: String) -> Result<(), String> {
 /// user/project scope — plugin-scope skills are owned by their plugin bundle and
 /// cannot be removed individually.
 #[tauri::command]
-pub fn delete_skill_presence(
+pub async fn delete_skill_presence(
     skill_id: String,
     project_dir: Option<String>,
 ) -> Result<(), String> {
