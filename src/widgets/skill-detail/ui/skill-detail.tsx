@@ -594,13 +594,16 @@ function EcosystemRow({
 
 function EmptyState() {
   return (
-    <section className="flex flex-1 flex-col">
+    <section className="flex h-full w-full flex-col overflow-hidden">
       <div data-tauri-drag-region className="h-11 shrink-0 border-b" />
-      <div className="flex flex-1 items-center justify-center">
+      <div className="flex flex-1 items-center justify-center px-6 pb-12">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex size-10 items-center justify-center rounded-md border bg-card text-muted-foreground">
-            <BookOpen size={18} />
-          </div>
+          <BookOpen
+            size={28}
+            strokeWidth={1.5}
+            className="text-muted-foreground/50"
+            aria-hidden
+          />
           <div className="flex flex-col gap-1">
             <p className="text-[13px] text-foreground">未选中 skill</p>
             <p className="text-[11.5px] text-muted-foreground">

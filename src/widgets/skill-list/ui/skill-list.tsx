@@ -21,11 +21,21 @@ export function SkillList({ logicals, conflicts, selectedId, onSelect }: Props) 
   const isEmpty = logicals.length === 0 && conflicts.length === 0;
   return (
     <section className="flex h-full w-full min-w-0 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-1.5">
+      <div className={cn("flex-1 p-1.5", isEmpty ? "flex" : "overflow-y-auto")}>
         {isEmpty ? (
-          <div className="mx-2 mt-8 flex flex-col items-center gap-1.5 rounded-md border border-dashed py-10 text-[12px] text-muted-foreground">
-            <Search size={16} className="opacity-60" />
-            没有匹配的 skill
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-12 text-center">
+            <Search
+              size={28}
+              strokeWidth={1.5}
+              className="text-muted-foreground/50"
+              aria-hidden
+            />
+            <div className="flex flex-col gap-1">
+              <p className="text-[13px] text-foreground">没有匹配的 skill</p>
+              <p className="text-[11.5px] text-muted-foreground">
+                调整搜索词或切换左侧分类试试
+              </p>
+            </div>
           </div>
         ) : (
           <>
