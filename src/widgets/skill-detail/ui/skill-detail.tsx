@@ -243,17 +243,6 @@ function DetailHeader({
         data-tauri-drag-region
         className="flex h-11 items-center gap-2 px-5 border-b"
       >
-        <EcosystemRow
-          presences={presences}
-          currentSkill={skill}
-          drifted={drifted}
-          syncBusy={syncBusy}
-          syncFailures={syncFailures}
-          onSync={triggerSync}
-          onRemove={(id) => {
-            void onDeletePresence(id);
-          }}
-        />
         <h1 className="min-w-0 truncate">
           <button
             type="button"
@@ -321,6 +310,21 @@ function DetailHeader({
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <EcosystemRow
+            presences={presences}
+            currentSkill={skill}
+            drifted={drifted}
+            syncBusy={syncBusy}
+            syncFailures={syncFailures}
+            onSync={triggerSync}
+            onRemove={(id) => {
+              void onDeletePresence(id);
+            }}
+          />
+          <span
+            aria-hidden
+            className="mx-0.5 h-4 w-px shrink-0 bg-border"
+          />
           {drifted && (
             <Button
               variant="ghost"
