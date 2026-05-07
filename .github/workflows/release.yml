@@ -49,6 +49,28 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Extract release notes
+        id: notes
+        run: |
+          {
+            echo 'body<<RELEASE_EOF'
+            awk '/^## / { if (seen) exit; seen=1 } seen' CHANGELOG.md
+            echo ''
+            echo '## 安装'
+            echo ''
+            echo '- Apple Silicon (M1/M2/M3/M4)：下载 `Quiver_*_aarch64.dmg`'
+            echo '- Intel Mac：下载 `Quiver_*_x64.dmg`'
+            echo ''
+            echo '首次打开如提示「已损坏，无法打开」，在终端执行：'
+            echo ''
+            echo '```bash'
+            echo 'xattr -cr /Applications/Quiver.app'
+            echo '```'
+            echo ''
+            echo '（未做 Apple 公证，开源项目常规绕过方式。）'
+            echo RELEASE_EOF
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -56,19 +78,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Quiver ${{ github.ref_name }}"
-          releaseBody: |
-            ## 安装
-
-            - Apple Silicon (M1/M2/M3/M4)：下载 `Quiver_*_aarch64.dmg`
-            - Intel Mac：下载 `Quiver_*_x64.dmg`
-
-            首次打开如提示「已损坏，无法打开」，在终端执行：
-
-            ```bash
-            xattr -cr /Applications/Quiver.app
-            ```
-
-            （未做 Apple 公证，开源项目常规绕过方式。）
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
