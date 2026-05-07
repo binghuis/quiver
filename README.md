@@ -1,42 +1,39 @@
 # Quiver
 
-跨 agent 生态的 **Skill 管理桌面 App**。把散落在 Claude / Codex / Gemini 三套目录里的 `SKILL.md`，集中到一个 Raycast 风格的三栏界面里管理。
+跨 Claude / Codex / Gemini 的 skill 分发台。你在自己的 IDE 里写 `SKILL.md`，Quiver 负责装、分发、启停、查看、清理——**只管不写**。
 
-## 它做什么
+## 安装（macOS）
 
-- **统一列表**：扫描 `~/.claude/skills`、`~/.codex/skills`、`~/.gemini/skills`，把同名同作用域的 skill 合并成一条逻辑记录展示，按生态、插件、作用域筛选。
-- **跨生态同步**：把 user 作用域下的 skill 一键复制到另一个生态；多份内容漂移时支持「推送到全部」一键拉齐。
-- **启停切换**：通过 `SKILL.md` ↔ `SKILL.md.disabled` 改名实现，状态写回 Quiver state 与 Claude 插件级开关（`enabledPlugins`）。
-- **GitHub 导入**：粘一个 GitHub URL 直接 `git clone` 成本地 marketplace，里面的插件 skill 自动入库；后续可一键 `git pull` 刷新。
-- **冲突提示**：同生态、同 plugin、同 frontmatter `name` 出现 ≥2 份时红色置顶，提示删除或重命名。
-- **快捷工具**：详情页支持复制 `SKILL.md` 绝对路径；删除一律走系统回收站，可还原。
+去 [Releases](https://github.com/binghuis/quiver/releases) 下载对应架构的 dmg：
 
-## 界面骨架
+- Apple Silicon（M1/M2/M3/M4）→ `Quiver_*_aarch64.dmg`
+- Intel Mac → `Quiver_*_x64.dmg`
 
-三栏布局，Raycast 视觉 + Finder 三栏交互 + shadcn 组件底：
+首次打开如提示「已损坏，无法打开」，终端执行一次即可：
 
-- 左：sidebar（生态 / 插件 / 作用域 / 标签筛选）
-- 中：skill 列表（含冲突告警条）
-- 右：详情（frontmatter、`SKILL.md` 渲染、生态标签、操作按钮）
+```bash
+xattr -cr /Applications/Quiver.app
+```
 
-`⌘K` 唤起命令面板。
+> 应用未做 Apple 公证（开源项目常规做法），介意可以 `git clone` 后自己 `pnpm tauri build`。
 
-## 技术栈
+## Features
 
-- **桌面壳**：Tauri 2（Rust）
-- **前端**：React 19 + Vite + TypeScript
-- **UI**：Tailwind v4 + shadcn + Radix
-- **架构**：FSD（`shared / entities / features / widgets / pages`）
+- **跨生态同步**：写在 Claude 里的 skill 一键复制给 Codex / Gemini；多端漂移后一键拉齐
+- **统一启停**：改 `SKILL.md` ↔ `SKILL.md.disabled`，同时写 Claude 插件级开关
+- **GitHub 导入**：粘 URL 当 marketplace 拉下来，里面所有 skill 自动入库，可一键 `git pull` 刷新
+- **冲突检测**：同生态同名 ≥2 份时红色置顶，避免 agent 调用时随机命中
+- **统一入口**：扫 `~/.claude/skills`、`~/.codex/skills`、`~/.gemini/skills` 合并展示，按生态 / 插件 / 标签筛
 
 ## 开发
 
 ```bash
 pnpm install
-pnpm tauri dev      # 开发
-pnpm tauri build    # 打包
+pnpm tauri dev
+pnpm tauri build
 ```
 
 ## 文档
 
-- [CLAUDE.md](CLAUDE.md) — 身份模型、同步/删除/切换命令矩阵、冲突语义
+- [CLAUDE.md](CLAUDE.md) — 身份模型与命令矩阵
 - [CHANGELOG.md](CHANGELOG.md) — 变更日志

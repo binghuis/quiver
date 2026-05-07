@@ -1,9 +1,11 @@
 [package]
 name = "quiver"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.1.1"
+description = "跨 Claude / Codex / Gemini 的 skill 分发台"
+authors = ["宋秉徽 <soongbinghui@gmail.com>"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/binghuis/quiver"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

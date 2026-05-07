@@ -1112,8 +1112,12 @@ pub async fn import_from_github(repo_url: String) -> Result<ImportResult, String
     //   3. 否则：拒绝并把探到的 SKILL.md 路径列给用户参考
     let home = home_dir()?;
 
-    let tmp_base = std::env::temp_dir().join(format!(
-        "quiver-import-{}",
+    // 临时目录放在 `~/.claude/` 下：保证后续 fs::rename 与目标目录同卷，
+    // 实现 atomic 切换；放系统 tmp 时跨卷会触发 EXDEV，回退到拷贝又得处理 .git 取舍。
+    let claude_root = home.join(".claude");
+    fs::create_dir_all(&claude_root).map_err(|e| format!("mkdir .claude: {}", e))?;
+    let tmp_base = claude_root.join(format!(
+        ".quiver-import-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -1128,6 +1132,7 @@ pub async fn import_from_github(repo_url: String) -> Result<ImportResult, String
         .output()
         .map_err(|e| format!("git clone failed to start: {}", e))?;
     if !output.status.success() {
+        let _ = fs::remove_dir_all(&tmp_base);
         return Err(format!(
             "git clone failed: {}",
             String::from_utf8_lossy(&output.stderr)
@@ -1141,8 +1146,10 @@ pub async fn import_from_github(repo_url: String) -> Result<ImportResult, String
         let folder_name =
             derive_repo_name(&repo_url).unwrap_or_else(|| "imported-skill".to_string());
         let dest = resolve_unique_child(&skills_root, &folder_name);
-        copy_dir_all(&tmp_base, &dest).map_err(|e| format!("copy skill: {}", e))?;
-        let _ = fs::remove_dir_all(&tmp_base);
+        if let Err(e) = fs::rename(&tmp_base, &dest) {
+            let _ = fs::remove_dir_all(&tmp_base);
+            return Err(format!("install skill: {}", e));
+        }
 
         let _guard = STATE_LOCK.lock().map_err(|e| e.to_string())?;
         let state = read_state();
@@ -1157,25 +1164,31 @@ pub async fn import_from_github(repo_url: String) -> Result<ImportResult, String
         let marketplaces_root = home.join(".claude").join("plugins").join("marketplaces");
         fs::create_dir_all(&marketplaces_root)
             .map_err(|e| format!("mkdir marketplaces root: {}", e))?;
-        let folder_name = derive_repo_name(&repo_url)
+        // 命名优先级：marketplace.json.name > URL 末段 > 兜底。
+        // 必须与 Claude CLI 自身的命名规则一致，否则同一仓库会被两边各装一份共存。
+        let folder_name = read_marketplace_name(&tmp_base)
+            .or_else(|| derive_repo_name(&repo_url))
             .unwrap_or_else(|| "imported-marketplace".to_string());
-        let dest = resolve_unique_child(&marketplaces_root, &folder_name);
-        copy_dir_all(&tmp_base, &dest).map_err(|e| format!("copy marketplace: {}", e))?;
-        let _ = fs::remove_dir_all(&tmp_base);
-
-        let final_name = dest
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or(folder_name);
+        let dest = marketplaces_root.join(&folder_name);
+        if dest.exists() {
+            let _ = fs::remove_dir_all(&tmp_base);
+            return Err(format!(
+                "marketplace `{}` 已存在（{}），请先在列表里删除或刷新后再导入",
+                folder_name,
+                dest.display()
+            ));
+        }
         let plugin_count = plugin_dirs.len();
         let skill_count: usize = plugin_dirs
             .iter()
-            .map(|p| {
-                find_skill_md_dirs(&p.join("skills"), usize::MAX / 2).len()
-            })
+            .map(|p| find_skill_md_dirs(&p.join("skills"), usize::MAX / 2).len())
             .sum();
+        if let Err(e) = fs::rename(&tmp_base, &dest) {
+            let _ = fs::remove_dir_all(&tmp_base);
+            return Err(format!("install marketplace: {}", e));
+        }
         return Ok(ImportResult::Marketplace {
-            name: final_name,
+            name: folder_name,
             plugin_count,
             skill_count,
         });
@@ -1299,6 +1312,18 @@ fn derive_repo_name(url: &str) -> Option<String> {
         .next()
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+/// 读 `<root>/.claude-plugin/marketplace.json` 的 `name` 字段。
+/// Claude CLI 自己装 marketplace 时用的就是这个名字，Quiver 的目录命名必须对齐，
+/// 否则同一仓库会被 Quiver 与 Claude CLI 当成两个独立 marketplace 共存。
+fn read_marketplace_name(root: &Path) -> Option<String> {
+    let raw = fs::read_to_string(root.join(".claude-plugin").join("marketplace.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    json.get("name")?
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
