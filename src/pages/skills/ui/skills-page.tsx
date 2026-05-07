@@ -41,7 +41,7 @@ import {
 import { useSkills } from "../model/useSkills";
 
 export function SkillsPage() {
-  const { state, updateLocal, upsertLocal, reload } = useSkills();
+  const { state, updateLocal, upsertLocal, reload, mutate } = useSkills();
   const [filter, setFilter] = useState<SidebarFilter>({ kind: "all" });
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -155,8 +155,9 @@ export function SkillsPage() {
       upsertLocal(result.skill);
       setSelectedId(result.skill.id);
     } else {
-      // Marketplace 整批装进来，local store 没法一条条 upsert；reload 拉全部。
-      await reload();
+      // Marketplace 整批装进来，local store 没法一条条 upsert；mutate 退栈时
+      // 自动 reload 拉全部。importFromGithub 本身是慢命令（git clone），
+      // 期间任何 onFocus / HMR 触发的 reload 都被压住，避免扫到半成品状态。
       setFilter({ kind: "marketplace", marketplace: result.name });
     }
   };
@@ -218,23 +219,23 @@ export function SkillsPage() {
 
   const handleDeleteMarketplace = async (marketplace: string) => {
     setActionError(null);
-    try {
-      const suffix = "@" + marketplace;
-      const derivedIds = derivedPresenceIdsFor((p) => p.endsWith(suffix));
-      await cascadeDeletePresences(derivedIds);
-      await deleteMarketplace(marketplace);
-      if (
-        (filter.kind === "marketplace" && filter.marketplace === marketplace) ||
-        (filter.kind === "plugin" &&
-          filter.plugin.endsWith("@" + marketplace))
-      ) {
-        setFilter({ kind: "all" });
+    await mutate(async () => {
+      try {
+        const suffix = "@" + marketplace;
+        const derivedIds = derivedPresenceIdsFor((p) => p.endsWith(suffix));
+        await cascadeDeletePresences(derivedIds);
+        await deleteMarketplace(marketplace);
+        if (
+          (filter.kind === "marketplace" && filter.marketplace === marketplace) ||
+          (filter.kind === "plugin" &&
+            filter.plugin.endsWith("@" + marketplace))
+        ) {
+          setFilter({ kind: "all" });
+        }
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
       }
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    } finally {
-      await reload();
-    }
+    });
   };
 
   // 插件总开关：写 `~/.claude/settings.json` 的 `enabledPlugins[plugin_id]`，
@@ -258,13 +259,14 @@ export function SkillsPage() {
   };
 
   const handleDeletePresence = async (presenceId: string) => {
-    try {
-      await deleteSkillPresence(presenceId);
-      if (selectedId === presenceId) setSelectedId(null);
-      await reload();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    }
+    await mutate(async () => {
+      try {
+        await deleteSkillPresence(presenceId);
+        if (selectedId === presenceId) setSelectedId(null);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
   };
 
   // 顶栏"删除"按钮语义：这条逻辑 skill 在所有生态里的 user/project 副本一把删。
@@ -280,23 +282,24 @@ export function SkillsPage() {
         (p) => p.skill.scope === "user" || p.skill.scope === "project",
       )
       .map((p) => p.skill.id);
-    try {
-      await cascadeDeletePresences(ids);
-      if (selectedId && ids.includes(selectedId)) setSelectedId(null);
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    } finally {
-      await reload();
-    }
+    await mutate(async () => {
+      try {
+        await cascadeDeletePresences(ids);
+        if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
   };
 
   const handleRefreshClaudeMarketplace = async (name: string) => {
-    try {
-      await refreshClaudeMarketplace(name);
-      await reload();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    }
+    await mutate(async () => {
+      try {
+        await refreshClaudeMarketplace(name);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    });
   };
 
   const selected = skills.find((s) => s.id === selectedId) ?? null;
@@ -393,8 +396,10 @@ export function SkillsPage() {
           input: {
             placeholder: "GitHub 仓库 URL，例如 https://github.com/binghuis/claude-plugins.git",
             onSubmit: async (url) => {
-              const result = await importFromGithub(url);
-              await handleImported(result);
+              await mutate(async () => {
+                const result = await importFromGithub(url);
+                await handleImported(result);
+              });
             },
           },
         },
@@ -405,14 +410,6 @@ export function SkillsPage() {
           hint: "即将推出",
           disabled: true,
           onRun: () => {},
-        },
-        {
-          id: "rescan",
-          label: "重新扫描",
-          icon: RefreshCw,
-          onRun: () => {
-            void reload();
-          },
         },
       ],
     },
