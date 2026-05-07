@@ -32,8 +32,3 @@ pnpm install
 pnpm tauri dev
 pnpm tauri build
 ```
-
-## 文档
-
-- [CLAUDE.md](CLAUDE.md) — 身份模型与命令矩阵
-- [CHANGELOG.md](CHANGELOG.md) — 变更日志
