@@ -17,6 +17,7 @@ import {
   type CommandPaletteGroup,
 } from "@/widgets/command-palette";
 import { SearchInput } from "@/features/skill-search";
+import { GitProxyDialog } from "@/features/git-proxy-config";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import {
@@ -46,6 +47,7 @@ export function SkillsPage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [proxyOpen, setProxyOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 每条 logical skill 下「最近一次同步尝试失败」的 eco → 错误消息。
   // 下一次同步成功才清除；reload 不抹，否则用户失焦一次红点就没了，等于又回到静默。
@@ -417,12 +419,10 @@ export function SkillsPage() {
       heading: "应用",
       items: [
         {
-          id: "settings",
-          label: "打开设置",
+          id: "git-proxy",
+          label: "Git HTTPS 代理",
           icon: Settings,
-          hint: "即将推出",
-          disabled: true,
-          onRun: () => {},
+          onRun: () => setProxyOpen(true),
         },
       ],
     },
@@ -536,6 +536,8 @@ export function SkillsPage() {
         onOpenChange={setCmdOpen}
         groups={commandGroups}
       />
+
+      <GitProxyDialog open={proxyOpen} onOpenChange={setProxyOpen} />
     </div>
   );
 }

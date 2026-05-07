@@ -72,6 +72,10 @@ fn quiver_state_path() -> Result<PathBuf, String> {
 struct State {
     #[serde(default)]
     disabled: HashSet<String>,
+    /// 仅作用于 App 内部 git 子进程的 HTTPS 代理（如 http://127.0.0.1:7890）。
+    /// GUI 进程不读 shell 的 HTTPS_PROXY，所以必须在这里显式落盘。
+    #[serde(default)]
+    git_proxy: Option<String>,
 }
 
 fn read_state() -> State {
@@ -1327,19 +1331,73 @@ fn read_marketplace_name(root: &Path) -> Option<String> {
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
+    // git 默认 connect 超时 75s，配 lowSpeed 对约束「TCP 建联到 15s 内必须有 1KB/s」，
+    // 在网络不通时让用户尽快收到反馈而不是傻等。
+    let proxy = read_state().git_proxy.unwrap_or_default();
+    let proxy_arg = if proxy.is_empty() {
+        String::new()
+    } else {
+        format!("http.proxy={}", proxy)
+    };
+    let mut cfg: Vec<&str> = vec![
+        "-c",
+        "http.lowSpeedLimit=1000",
+        "-c",
+        "http.lowSpeedTime=15",
+    ];
+    if !proxy_arg.is_empty() {
+        cfg.push("-c");
+        cfg.push(&proxy_arg);
+    }
+    let full_args: Vec<&str> = cfg.into_iter().chain(args.iter().copied()).collect();
+
     let output = Command::new("git")
         .current_dir(root)
-        .args(args)
+        .args(&full_args)
         .output()
         .map_err(|e| format!("git {}: failed to start ({})", args.join(" "), e))?;
     if !output.status.success() {
-        return Err(format!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(translate_git_error(args, stderr.as_ref()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn translate_git_error(args: &[&str], stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    let lower = trimmed.to_lowercase();
+    let net_keywords = [
+        "failed to connect",
+        "couldn't connect",
+        "could not resolve host",
+        "connection timed out",
+        "connection refused",
+        "network is unreachable",
+    ];
+    if net_keywords.iter().any(|k| lower.contains(k)) {
+        return format!(
+            "无法连接 GitHub：{}\n请按 ⌘K 打开命令面板，运行「Git HTTPS 代理」配置后重试（GUI 进程不会读终端的代理变量，终端 git 能跑也未必管用）。",
+            trimmed
+        );
+    }
+    format!("git {}: {}", args.join(" "), trimmed)
+}
+
+#[tauri::command]
+pub fn get_git_proxy() -> Result<Option<String>, String> {
+    let _guard = STATE_LOCK.lock().map_err(|e| e.to_string())?;
+    Ok(read_state().git_proxy)
+}
+
+#[tauri::command]
+pub fn set_git_proxy(proxy: Option<String>) -> Result<(), String> {
+    let _guard = STATE_LOCK.lock().map_err(|e| e.to_string())?;
+    let mut state = read_state();
+    state.git_proxy = proxy.and_then(|p| {
+        let trimmed = p.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    });
+    write_state(&state)
 }
 
 #[tauri::command]

@@ -14,6 +14,8 @@ pub fn run() {
             skills::sync_skill_to_ecosystem,
             skills::refresh_claude_marketplace,
             skills::marketplace_path,
+            skills::get_git_proxy,
+            skills::set_git_proxy,
             deletion::delete_marketplace,
             deletion::delete_skill_presence,
         ])
