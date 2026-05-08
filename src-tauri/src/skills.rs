@@ -1129,18 +1129,14 @@ pub async fn import_from_github(repo_url: String) -> Result<ImportResult, String
     ));
     // `--` 终结选项解析：防止以 `-` 开头的 URL 被 git 当 flag 处理
     // （例如 `--upload-pack=…` 会变成任意命令执行面）。
-    let output = Command::new("git")
-        .args(["clone", "--depth", "1", "--"])
-        .arg(&repo_url)
-        .arg(&tmp_base)
-        .output()
-        .map_err(|e| format!("git clone failed to start: {}", e))?;
-    if !output.status.success() {
+    // 走 run_git 共享 connect timeout / lowSpeed / 用户 git_proxy 配置。
+    let tmp_base_str = tmp_base.to_string_lossy().into_owned();
+    if let Err(e) = run_git(
+        None,
+        &["clone", "--depth", "1", "--", &repo_url, &tmp_base_str],
+    ) {
         let _ = fs::remove_dir_all(&tmp_base);
-        return Err(format!(
-            "git clone failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+        return Err(e);
     }
 
     // —— 分流 1：根目录是单 skill。
@@ -1330,16 +1326,25 @@ fn read_marketplace_name(root: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
-    // git 默认 connect 超时 75s，配 lowSpeed 对约束「TCP 建联到 15s 内必须有 1KB/s」，
+fn run_git(cwd: Option<&Path>, args: &[&str]) -> Result<String, String> {
+    // 三道超时叠加：
+    //   - http.connectTimeout=15000  TCP 建联阶段（毫秒！git 默认 0=无限等，curl 兜底约 75s）
+    //   - http.lowSpeedLimit/Time    传输阶段吞吐低于 1KB/s 持续 15 秒就放弃（lowSpeedTime 是秒）
     // 在网络不通时让用户尽快收到反馈而不是傻等。
-    let proxy = read_state().git_proxy.unwrap_or_default();
+    // 别把 connectTimeout 写成 15——那是 15 毫秒，建连必失败，git 会降级到 curl 默认 75s。
+    //
+    // proxy 优先级：UI 里手配的 git_proxy > shell env 派生（all_proxy / https_proxy 等）。
+    // 后者是为了 macOS GUI 进程的兜底——env_bootstrap 已把 shell env 注入进来，
+    // 但 git/libcurl 不一定主动读 ALL_PROXY=socks5://...，显式 -c http.proxy= 才稳。
+    let proxy = resolve_git_proxy();
     let proxy_arg = if proxy.is_empty() {
         String::new()
     } else {
         format!("http.proxy={}", proxy)
     };
     let mut cfg: Vec<&str> = vec![
+        "-c",
+        "http.connectTimeout=15000",
         "-c",
         "http.lowSpeedLimit=1000",
         "-c",
@@ -1351,8 +1356,11 @@ fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
     }
     let full_args: Vec<&str> = cfg.into_iter().chain(args.iter().copied()).collect();
 
-    let output = Command::new("git")
-        .current_dir(root)
+    let mut cmd = Command::new("git");
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let output = cmd
         .args(&full_args)
         .output()
         .map_err(|e| format!("git {}: failed to start ({})", args.join(" "), e))?;
@@ -1361,6 +1369,64 @@ fn run_git(root: &Path, args: &[&str]) -> Result<String, String> {
         return Err(translate_git_error(args, stderr.as_ref()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// 计算这次 git 调用要用的 proxy URL。空串表示不走代理。
+/// 优先级：
+///   1. UI 里手配的 `git_proxy`（用户显式指定，最高）
+///   2. shell env（用户在 .zshrc 里 export 了 http_proxy 之类）
+///   3. macOS 系统代理（ClashX/Surge 默认勾「Set as System Proxy」就会写到这里）
+/// `socks5://...` / `socks5h://...` URL 直接传给 git，现代 libcurl 都支持。
+fn resolve_git_proxy() -> String {
+    if let Some(p) = read_state().git_proxy {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    for key in [
+        "https_proxy",
+        "HTTPS_PROXY",
+        "all_proxy",
+        "ALL_PROXY",
+        "http_proxy",
+        "HTTP_PROXY",
+    ] {
+        if let Ok(v) = std::env::var(key) {
+            if !v.trim().is_empty() {
+                return v;
+            }
+        }
+    }
+    read_macos_system_proxy().unwrap_or_default()
+}
+
+/// 跑 `scutil --proxy` 拿 macOS 系统级代理设置（System Settings → Network → Proxies），
+/// 按 SOCKS > HTTPS > HTTP 优先级返回第一个开启的。SOCKS 走 socks5h:// 让代理端解析 DNS，
+/// 国内访问 GitHub 比本地解析靠谱。
+fn read_macos_system_proxy() -> Option<String> {
+    if cfg!(not(target_os = "macos")) {
+        return None;
+    }
+    let out = Command::new("/usr/sbin/scutil").arg("--proxy").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let map: std::collections::HashMap<&str, &str> = raw
+        .lines()
+        .filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim(), v.trim())))
+        .collect();
+    let pick = |enable, host_key, port_key, scheme: &str| -> Option<String> {
+        if *map.get(enable)? != "1" {
+            return None;
+        }
+        let host = map.get(host_key)?;
+        let port = map.get(port_key)?;
+        Some(format!("{}://{}:{}", scheme, host, port))
+    };
+    pick("SOCKSEnable", "SOCKSProxy", "SOCKSPort", "socks5h")
+        .or_else(|| pick("HTTPSEnable", "HTTPSProxy", "HTTPSPort", "http"))
+        .or_else(|| pick("HTTPEnable", "HTTPProxy", "HTTPPort", "http"))
 }
 
 fn translate_git_error(args: &[&str], stderr: &str) -> String {
@@ -1542,7 +1608,7 @@ pub async fn refresh_claude_marketplace(name: String) -> Result<(), String> {
         ));
     }
 
-    run_git(&marketplace_dir, &["pull", "--ff-only"])?;
+    run_git(Some(&marketplace_dir), &["pull", "--ff-only"])?;
 
     // 清掉 `cache/<name>/` 整块。不存在就跳过（比如该 marketplace 下还没装过
     // 任何插件）。删前再核对一次绝对路径落在 cache 根下，防御极端输入。

@@ -16,6 +16,12 @@ import { Kbd } from "@/shared/ui/kbd";
 export type CommandInputConfig = {
   placeholder: string;
   onSubmit: (value: string) => Promise<void> | void;
+  /** 进入输入态时拉一次现有值并 prefill。配置型命令（如 git proxy）用得上。 */
+  initialValue?: () => Promise<string> | string;
+  /** 输入条下方一行小字，写格式提示 / 例子。 */
+  helperText?: string;
+  /** 允许提交空字符串。默认 false（防止误触）；配置项要清除时打开。 */
+  allowEmpty?: boolean;
 };
 
 type CommonFields = {
@@ -125,16 +131,42 @@ function InputView({
 }) {
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
+  const [prefilling, setPrefilling] = useState(
+    typeof item.input.initialValue === "function",
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 拉 prefill。同步返回直接拿；异步返回等一下，期间 input 禁用避免用户在
+  // 旧空值上抢跑提交。组件卸载后忽略结果，避免 setState on unmounted。
   useEffect(() => {
+    const provider = item.input.initialValue;
+    if (!provider) return;
+    let cancelled = false;
+    void Promise.resolve(provider())
+      .then((v) => {
+        if (!cancelled) setValue(v);
+      })
+      .catch(() => {
+        // prefill 失败就当空——仍然允许用户输入新值。
+      })
+      .finally(() => {
+        if (!cancelled) setPrefilling(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.input]);
+
+  useEffect(() => {
+    if (prefilling) return;
     const t = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [prefilling]);
 
   const submit = async () => {
+    if (loading || prefilling) return;
     const trimmed = value.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed && !item.input.allowEmpty) return;
     setLoading(true);
     try {
       await item.input.onSubmit(trimmed);
@@ -151,28 +183,35 @@ function InputView({
   const Icon = item.icon;
 
   return (
-    <div className="flex h-12 items-center gap-3 border-b px-4">
-      <Icon size={16} className="shrink-0 text-muted-foreground" />
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-        }}
-        placeholder={item.input.placeholder}
-        disabled={loading}
-        className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground disabled:opacity-60"
-      />
-      {loading ? (
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-          执行中…
-        </span>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          <Kbd>↵</Kbd>
-          <Kbd>Esc</Kbd>
+    <div>
+      <div className="flex h-12 items-center gap-3 border-b px-4">
+        <Icon size={16} className="shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder={item.input.placeholder}
+          disabled={loading || prefilling}
+          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground disabled:opacity-60"
+        />
+        {loading ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+            执行中…
+          </span>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1">
+            <Kbd>↵</Kbd>
+            <Kbd>Esc</Kbd>
+          </div>
+        )}
+      </div>
+      {item.input.helperText && (
+        <div className="px-4 py-2 text-[11px] text-muted-foreground">
+          {item.input.helperText}
         </div>
       )}
     </div>

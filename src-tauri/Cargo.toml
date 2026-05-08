@@ -1,6 +1,6 @@
 [package]
 name = "quiver"
-version = "0.1.1"
+version = "0.2.0"
 description = "跨 Claude / Codex / Gemini 的 skill 分发台"
 authors = ["宋秉徽 <soongbinghui@gmail.com>"]
 edition = "2021"

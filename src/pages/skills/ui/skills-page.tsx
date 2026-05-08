@@ -17,7 +17,7 @@ import {
   type CommandPaletteGroup,
 } from "@/widgets/command-palette";
 import { SearchInput } from "@/features/skill-search";
-import { GitProxyDialog } from "@/features/git-proxy-config";
+import { getGitProxy, setGitProxy } from "@/features/git-proxy-config";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import {
@@ -47,7 +47,6 @@ export function SkillsPage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [proxyOpen, setProxyOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 每条 logical skill 下「最近一次同步尝试失败」的 eco → 错误消息。
   // 下一次同步成功才清除；reload 不抹，否则用户失焦一次红点就没了，等于又回到静默。
@@ -422,7 +421,16 @@ export function SkillsPage() {
           id: "git-proxy",
           label: "Git HTTPS 代理",
           icon: Settings,
-          onRun: () => setProxyOpen(true),
+          input: {
+            placeholder: "socks5h://127.0.0.1:7891",
+            helperText:
+              "支持 http / https / socks5 / socks5h；留空回车 = 清除（直连）。常用: ClashX http=7890, socks5=7891",
+            allowEmpty: true,
+            initialValue: async () => (await getGitProxy()) ?? "",
+            onSubmit: async (value) => {
+              await setGitProxy(value.length > 0 ? value : null);
+            },
+          },
         },
       ],
     },
@@ -536,8 +544,6 @@ export function SkillsPage() {
         onOpenChange={setCmdOpen}
         groups={commandGroups}
       />
-
-      <GitProxyDialog open={proxyOpen} onOpenChange={setProxyOpen} />
     </div>
   );
 }

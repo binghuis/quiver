@@ -1,1 +1,1 @@
-export { GitProxyDialog } from "./ui/git-proxy-dialog";
+export { getGitProxy, setGitProxy } from "./api/git-proxy";
